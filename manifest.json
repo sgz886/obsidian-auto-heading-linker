@@ -1,0 +1,9 @@
+{
+	"id": "auto-heading-linker",
+	"name": "Auto Heading Linker",
+	"version": "1.0.0",
+	"minAppVersion": "1.0.0",
+	"description": "Automatically updates internal links when headings are renamed by any means.",
+	"author": "You",
+	"isDesktopOnly": false
+}
