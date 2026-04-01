@@ -1,4 +1,4 @@
-import { Plugin, TFile, HeadingCache, LinkCache, CachedMetadata } from 'obsidian';
+import { Plugin, TFile, HeadingCache, LinkCache, CachedMetadata, stripHeading, stripHeadingForLink } from 'obsidian';
 
 interface HeadingSnapshot {
 	line: number;
@@ -9,6 +9,12 @@ export default class AutoHeadingLinker extends Plugin {
 	private snapshots = new Map<string, HeadingSnapshot[]>();
 
 	async onload() {
+		this.addCommand({ id: 'test-strip', name: 'Test strip functions', callback: () => {
+			['h1: v1', 'test#value', 'a|b', 'hello?', 'hello!'].forEach(t =>
+				console.log(`"${t}" → strip: "${stripHeading(t)}" | forLink: "${stripHeadingForLink(t)}"`)
+			);
+		}});
+
 		// Snapshot headings when a file is opened
 		this.registerEvent(
 			this.app.workspace.on('file-open', (file) => {
@@ -85,8 +91,11 @@ export default class AutoHeadingLinker extends Plugin {
 		targetFile: TFile,
 		changes: { oldHeading: string; newHeading: string }[]
 	) {
-		// Build a map of old heading -> new heading for quick lookup
-		const renameMap = new Map(changes.map((c) => [c.oldHeading, c.newHeading]));
+		// Build rename map: stripHeading for matching keys, stripHeadingForLink for replacement values
+		const renameMap = new Map<string, string>();
+		for (const c of changes) {
+			renameMap.set(stripHeading(c.oldHeading), stripHeadingForLink(c.newHeading));
+		}
 
 		const targetPath = targetFile.path;
 
@@ -119,7 +128,8 @@ export default class AutoHeadingLinker extends Plugin {
 				const isTargetLink =
 					notePart === '' && file.path === targetPath || // same-file [[#heading]]
 					this.resolveLink(notePart, file) === targetPath;
-				return isTargetLink && renameMap.has(headingPart);
+				// Compare using stripHeading on both sides for normalization
+				return isTargetLink && renameMap.has(stripHeading(headingPart));
 			});
 
 			if (matchingLinks.length === 0) continue;
@@ -132,7 +142,7 @@ export default class AutoHeadingLinker extends Plugin {
 
 			for (const link of sorted) {
 				const [notePart, oldHeading] = link.link.split('#', 2);
-				const newHeading = renameMap.get(oldHeading);
+				const newHeading = renameMap.get(stripHeading(oldHeading));
 				if (!newHeading) continue;
 
 				const start = link.position.start.offset;

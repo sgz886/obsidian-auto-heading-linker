@@ -88,18 +88,35 @@ An array of heading renames detected in a single file change event.
 **Trigger**: One or more heading renames detected in the diff.
 
 **Algorithm**:
-1. Build a `renameMap`: `Map<oldHeading, newHeading>`
+1. Build a `renameMap`: `Map<stripHeading(oldHeading), stripHeadingForLink(newHeading)>`
+   - Keys are normalized using `stripHeading()` for matching
+   - Values are formatted using `stripHeadingForLink()` for generating valid link text
 2. Use `app.metadataCache.resolvedLinks` to find only files that link to the target file (plus the target file itself for same-file links)
-3. For each candidate file, read its cached `links` array from `metadataCache`
-4. Filter links that:
+3. For each candidate file, read its cached `links` and `embeds` arrays from `metadataCache`
+4. Filter links/embeds that:
    - Contain `#` (heading links)
    - Resolve to the target file (using `metadataCache.getFirstLinkpathDest`)
-   - Have a heading part that matches an entry in `renameMap`
+   - Have a heading part where `stripHeading(headingPart)` matches an entry in `renameMap`
 5. For matching files, read file content, replace link text at exact positions (in reverse offset order to preserve positions), and write back
+
+**Why `stripHeading` on both sides**: Obsidian strips certain special characters (e.g., `:`, `#`, `|`, `^`, `\`, `[`, `]`, `%`) from heading text when generating links. The raw heading in `HeadingCache.heading` may contain these characters, while the link text in `LinkCache.link` may not. Using `stripHeading()` to normalize both sides ensures correct matching regardless of which characters are present.
+
+**Why `stripHeadingForLink` for replacement**: This is the same function Obsidian uses to generate link text from headings. Using it ensures the replacement text is formatted exactly as Obsidian expects.
 
 **Why reverse offset order**: When replacing text in a string, earlier replacements shift the positions of later text. Processing from end to start avoids this.
 
-### 5.4 Link Resolution
+### 5.4 Heading Sanitization APIs
+
+Obsidian provides two related but distinct functions for heading text processing:
+
+| Function | Purpose | Used for |
+|----------|---------|----------|
+| `stripHeading(heading)` | Normalizes headings for link **matching** by stripping special characters and collapsing spaces | Comparing heading text against link text (both sides of the match) |
+| `stripHeadingForLink(heading)` | Prepares headings **for linking** by stripping characters that could break links | Generating the replacement text written into updated links |
+
+These may strip different character sets. `stripHeading` may be more aggressive (for fuzzy matching), while `stripHeadingForLink` preserves characters that are safe in links.
+
+### 5.5 Link Resolution
 
 Links can take several forms:
 - `[[NoteA#heading]]` — explicit note + heading
@@ -116,6 +133,8 @@ We use `app.metadataCache.getFirstLinkpathDest(linkText, sourcePath)` to resolve
 | `metadataCache.on('changed')` | Detect file content changes after metadata re-parse |
 | `metadataCache.getFileCache(file)` | Read cached headings and links for a file |
 | `metadataCache.getFirstLinkpathDest(link, source)` | Resolve a link text to a target file |
+| `stripHeading(heading)` | Normalize heading text for link matching |
+| `stripHeadingForLink(heading)` | Prepare heading text for use in link targets |
 | `vault.getMarkdownFiles()` | List all markdown files in the vault |
 | `vault.read(file)` | Read file content for link replacement |
 | `vault.modify(file, content)` | Write updated content back |
@@ -154,6 +173,11 @@ When the Number Headings plugin renumbers all headings at once, the `'changed'` 
 ### 8.5 Same-File Links
 Links like `[[#heading]]` within the same file are handled. The plugin detects these by checking if the note part of the link is empty and the source file matches the target file.
 
+### 8.6 Special Characters in Headings
+Headings containing special characters (e.g., `:`, `#`, `|`) are handled using Obsidian's `stripHeading` and `stripHeadingForLink` APIs. The plugin normalizes both the heading text and the link text before comparison, so links are correctly matched and updated regardless of which characters Obsidian strips.
+
+Note: The unit tests use a mock implementation of these functions. The mock may not exactly match Obsidian's real behavior. Use the `Test strip functions` command (in the command palette) to verify real behavior in Obsidian's developer console.
+
 ## 9. Future Improvements
 
 - **Snapshot persistence**: Save snapshots to disk to survive restarts
@@ -162,3 +186,4 @@ Links like `[[#heading]]` within the same file are handled. The plugin detects t
 - **Notification**: Show a notice when links are updated (count of files modified)
 - **Fuzzy heading matching**: Handle line shifts from insertions/deletions
 - ~~**Performance**: Use `resolvedLinks` to pre-filter files~~ — **Implemented**
+- ~~**Special character handling**: Support headings with colons, `#`, `|`, etc.~~ — **Implemented** (v1.1.0, using `stripHeading`/`stripHeadingForLink`)
